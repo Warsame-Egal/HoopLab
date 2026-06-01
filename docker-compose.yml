@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: hooplab-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hooplab}
+      POSTGRES_USER: ${POSTGRES_USER:-hooplab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hooplab} -d ${POSTGRES_DB:-hooplab}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  ingestion:
+    build: ./ingestion
+    container_name: hooplab-ingestion
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    build: ./backend
+    container_name: hooplab-backend
+    env_file:
+      - .env
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-hooplab}
+      INGESTION_BASE_URL: http://ingestion:8000
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ingestion:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: http://localhost:8080
+    container_name: hooplab-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
