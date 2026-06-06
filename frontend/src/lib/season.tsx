@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { currentSeason } from './utils'
+import { SeasonContext, type SeasonContextValue } from './seasonContext'
 
 function buildSeasonOptions(count: number): string[] {
   const current = currentSeason()
@@ -15,14 +16,6 @@ function buildSeasonOptions(count: number): string[] {
 const SEASON_OPTIONS = buildSeasonOptions(8)
 const STORAGE_KEY = 'hooplab.season'
 
-type SeasonContextValue = {
-  season: string
-  setSeason: (season: string) => void
-  options: string[]
-}
-
-const SeasonContext = createContext<SeasonContextValue | null>(null)
-
 export function SeasonProvider({ children }: { children: ReactNode }) {
   const [season, setSeasonState] = useState<string>(() => {
     if (typeof window === 'undefined') return SEASON_OPTIONS[0]
@@ -37,18 +30,10 @@ export function SeasonProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const value = useMemo(
+  const value: SeasonContextValue = useMemo(
     () => ({ season, setSeason, options: SEASON_OPTIONS }),
     [season, setSeason],
   )
 
   return <SeasonContext.Provider value={value}>{children}</SeasonContext.Provider>
-}
-
-export function useSeason(): SeasonContextValue {
-  const ctx = useContext(SeasonContext)
-  if (!ctx) {
-    throw new Error('useSeason must be used within a SeasonProvider')
-  }
-  return ctx
 }

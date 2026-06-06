@@ -1,0 +1,17 @@
+HoopLab
+Copyright (c) 2026 HoopLab contributors
+
+This product fetches NBA data at runtime using nba_api.
+
+  nba_api
+  https://github.com/swar/nba_api
+  Copyright (c) Swar Patel and contributors
+  Licensed under the MIT License.
+
+nba_api is an unofficial client for stats.nba.com. HoopLab is not affiliated
+with, endorsed by, or sponsored by the National Basketball Association (NBA)
+or stats.nba.com. All NBA data, team names, and logos are property of their
+respective owners and are used here for informational and educational purposes.
+
+Other notable open-source dependencies include Spring Boot, FastAPI, React,
+Vite, Tailwind CSS, Recharts, and Leaflet, each under their respective licenses.

@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
@@ -6,13 +6,25 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   const response = await fetch(`${API_BASE}${path}`, { ...init, headers })
   if (!response.ok) {
-    const body = await response.json().catch(() => ({ message: response.statusText }))
-    throw new Error(body.message ?? 'Request failed')
+    const body = (await response.json().catch(() => ({}))) as {
+      message?: string
+      detail?: string
+      status?: number
+    }
+    const msg = body.message ?? body.detail ?? response.statusText
+    throw new Error(msg || 'Request failed')
   }
   if (response.status === 204) {
     return undefined as T
   }
-  return response.json()
+  const text = await response.text()
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new Error(
+      `Invalid JSON from ${path} — is the API reachable? (got HTML or empty body). Use http://localhost:5173 with Docker, or Vite dev with empty VITE_API_BASE_URL.`,
+    )
+  }
 }
 
 export interface PageResponse<T> {
@@ -112,7 +124,6 @@ export interface TeamMapPoint {
   longitude: number | null
   wins: number | null
   losses: number | null
-  winPct: number | null
   netRtg: number | null
   clutchNetRtg: number | null
   conference: string | null

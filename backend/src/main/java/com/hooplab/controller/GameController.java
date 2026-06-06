@@ -5,6 +5,7 @@ import com.hooplab.dto.BoxScoreDto;
 import com.hooplab.dto.GameDto;
 import com.hooplab.service.GameService;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -47,5 +48,25 @@ public class GameController {
             @PathVariable String gameId,
             @RequestParam(defaultValue = "advanced") String measure) {
         return gameService.getAdvancedBoxScore(gameId, measure);
+    }
+
+    @GetMapping(value = "/{gameId}/boxscore/{variant}", produces = MediaType.APPLICATION_JSON_VALUE)
+    public String boxScoreVariant(@PathVariable String gameId, @PathVariable String variant) {
+        return gameService.getBoxScoreVariant(gameId, variant);
+    }
+
+    @GetMapping(value = "/{gameId}/summary", produces = MediaType.APPLICATION_JSON_VALUE)
+    public String summary(@PathVariable String gameId) {
+        return gameService.getSummary(gameId);
+    }
+
+    @GetMapping(value = "/{gameId}/win-probability", produces = MediaType.APPLICATION_JSON_VALUE)
+    public String winProbability(@PathVariable String gameId) {
+        return gameService.getWinProbability(gameId);
+    }
+
+    @GetMapping(value = "/{gameId}/rotation", produces = MediaType.APPLICATION_JSON_VALUE)
+    public String rotation(@PathVariable String gameId) {
+        return gameService.getRotation(gameId);
     }
 }

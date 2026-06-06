@@ -1,24 +1,25 @@
 import { useState } from 'react'
+import { teamLogoCdnUrl, teamLogoUrl } from '../lib/teamLogo'
 import { cn } from '../lib/utils'
-
-export function teamLogoUrl(abbreviation: string | null | undefined): string | null {
-  return abbreviation ? `/logos/${abbreviation.toUpperCase()}.svg` : null
-}
 
 type TeamLogoProps = {
   abbreviation: string | null | undefined
+  teamId?: number | null
   className?: string
 }
 
-export function TeamLogo({ abbreviation, className }: TeamLogoProps) {
+export function TeamLogo({ abbreviation, teamId, className }: TeamLogoProps) {
+  const [useCdn, setUseCdn] = useState(false)
   const [failed, setFailed] = useState(false)
-  const url = teamLogoUrl(abbreviation)
+  const localUrl = teamLogoUrl(abbreviation)
+  const cdnUrl = teamLogoCdnUrl(teamId)
+  const url = useCdn || !localUrl ? cdnUrl : localUrl
 
   if (!url || failed) {
     return (
       <div
         className={cn(
-          'flex items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-500',
+          'flex items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground',
           className,
         )}
       >
@@ -32,7 +33,13 @@ export function TeamLogo({ abbreviation, className }: TeamLogoProps) {
       src={url}
       alt={abbreviation ?? 'team logo'}
       className={cn('object-contain', className)}
-      onError={() => setFailed(true)}
+      onError={() => {
+        if (!useCdn && cdnUrl) {
+          setUseCdn(true)
+          return
+        }
+        setFailed(true)
+      }}
     />
   )
 }

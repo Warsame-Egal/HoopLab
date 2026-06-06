@@ -4,7 +4,12 @@ import { Link } from 'react-router-dom'
 import { Activity } from 'lucide-react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
+import { SegmentedControl } from './ui/SegmentedControl'
+import { Skeleton } from './ui/Skeleton'
+import { EmptyState } from './ui/EmptyState'
 import { api, type TeamGameLog } from '../lib/api'
+import { CHART_ACCENT, axisProps, gridProps } from '../lib/chartTheme'
+import { chartTooltip } from '../lib/chartTooltipContent'
 import { cn } from '../lib/utils'
 
 type Metric = { key: 'pts' | 'plusMinus'; label: string }
@@ -40,59 +45,51 @@ export function TeamGameLogChart({ teamId, season }: { teamId: number; season: s
   }))
 
   return (
-    <Card className="border border-gray-200">
-      <CardHeader className="border-b border-gray-100 pb-4">
+    <Card className="">
+      <CardHeader className="border-b border-border pb-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <CardTitle className="flex items-center gap-3 text-gray-900">
-            <Activity className="h-5 w-5 text-blue-600" />
+          <CardTitle className="flex items-center gap-3 text-foreground">
+            <Activity className="h-5 w-5 text-info" />
             Recent Form
-            <span className="font-normal text-gray-400">· {season}</span>
           </CardTitle>
-          <div className="flex items-center gap-1 rounded-lg bg-gray-100 p-0.5">
-            {METRICS.map((m) => (
-              <button
-                key={m.key}
-                type="button"
-                onClick={() => setMetric(m.key)}
-                className={cn(
-                  'rounded-md px-3 py-1.5 text-xs font-medium transition-all',
-                  metric === m.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700',
-                )}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            options={METRICS.map((m) => ({ key: m.key, label: m.label }))}
+            value={metric}
+            onChange={setMetric}
+          />
         </div>
       </CardHeader>
       <CardContent className="pt-6">
         {isLoading ? (
-          <div className="flex h-64 items-center justify-center text-sm text-gray-500">Loading game log…</div>
+          <Skeleton className="h-64 w-full" />
         ) : chartData.length === 0 ? (
-          <div className="flex h-64 items-center justify-center px-6 text-center text-sm text-gray-400">
-            No game log for {season} yet.
-          </div>
+          <EmptyState className="h-64" title="No game log" description={`No game log for ${season} yet.`} />
         ) : (
           <>
-            <p className="mb-4 text-sm text-gray-500">
-              <span className="font-semibold text-gray-900">{wins}–{losses}</span> over {games.length} games
+            <p className="mb-4 text-sm text-muted-foreground">
+              <span className="font-semibold text-foreground">{wins}–{losses}</span> over {games.length} games
             </p>
             <ResponsiveContainer width="100%" height={240}>
               <LineChart data={chartData} margin={{ top: 5, right: 16, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" />
-                <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#737373' }} axisLine={{ stroke: '#d4d4d4' }} tickLine={false} minTickGap={24} />
-                <YAxis tick={{ fontSize: 11, fill: '#737373' }} axisLine={false} tickLine={false} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e5e5', borderRadius: 8, boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                <CartesianGrid {...gridProps} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: 'var(--muted-foreground)' }} axisLine={false} tickLine={false} minTickGap={24} />
+                <YAxis {...axisProps} />
+                <Tooltip content={chartTooltip()} />
+                <Line
+                  type="monotone"
+                  dataKey="value"
+                  stroke={CHART_ACCENT}
+                  strokeWidth={2}
+                  dot={{ r: 2, fill: CHART_ACCENT }}
+                  name={metric === 'pts' ? 'Points' : 'Plus/Minus'}
                 />
-                <Line type="monotone" dataKey="value" stroke="#ea580c" strokeWidth={2} dot={{ r: 2 }} name={metric === 'pts' ? 'Points' : 'Plus/Minus'} />
               </LineChart>
             </ResponsiveContainer>
 
-            <div className="mt-4 max-h-64 overflow-y-auto rounded-lg border border-gray-100">
+            <div className="mt-4 max-h-64 overflow-y-auto rounded-lg border border-border">
               <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-gray-50 text-gray-600">
-                  <tr className="border-b border-gray-200">
+                <thead className="sticky top-0 bg-muted text-muted-foreground">
+                  <tr className="border-b border-border">
                     <th className="px-3 py-2 text-left font-medium">Date</th>
                     <th className="px-3 py-2 text-left font-medium">Matchup</th>
                     <th className="px-2 py-2 text-center font-medium">W/L</th>
@@ -102,18 +99,18 @@ export function TeamGameLogChart({ teamId, season }: { teamId: number; season: s
                 </thead>
                 <tbody>
                   {[...games].reverse().map((g) => (
-                    <tr key={g.gameId} className="border-b border-gray-50 last:border-0 hover:bg-blue-50">
-                      <td className="px-3 py-2 text-gray-600">{shortDate(g.gameDate)}</td>
+                    <tr key={g.gameId} className="border-b border-border/50 last:border-0 hover:bg-muted">
+                      <td className="px-3 py-2 text-muted-foreground">{shortDate(g.gameDate)}</td>
                       <td className="px-3 py-2">
-                        <Link to={`/games/${g.gameId}`} className="font-medium text-gray-900 hover:text-orange-600">
+                        <Link to={`/games/${g.gameId}`} className="font-medium text-foreground hover:text-brand">
                           {g.matchup}
                         </Link>
                       </td>
-                      <td className={cn('px-2 py-2 text-center font-semibold', g.wl === 'W' ? 'text-emerald-600' : 'text-red-600')}>
+                      <td className={cn('px-2 py-2 text-center font-semibold', g.wl === 'W' ? 'text-success' : 'text-live')}>
                         {g.wl ?? '—'}
                       </td>
-                      <td className="px-2 py-2 text-right text-gray-700">{g.pts ?? '—'}</td>
-                      <td className={cn('px-2 py-2 text-right', (g.plusMinus ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600')}>
+                      <td className="px-2 py-2 text-right text-muted-foreground">{g.pts ?? '—'}</td>
+                      <td className={cn('px-2 py-2 text-right', (g.plusMinus ?? 0) >= 0 ? 'text-success' : 'text-live')}>
                         {g.plusMinus == null ? '—' : g.plusMinus > 0 ? `+${g.plusMinus}` : g.plusMinus}
                       </td>
                     </tr>

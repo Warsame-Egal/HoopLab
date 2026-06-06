@@ -1,109 +1,68 @@
 package com.hooplab.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.hooplab.domain.PlayerSeasonStats;
-import com.hooplab.domain.Team;
-import com.hooplab.domain.TeamGameLog;
-import com.hooplab.domain.TeamSeasonStats;
-import com.hooplab.dto.CoachDto;
-import com.hooplab.dto.OfficialRosterDto;
-import com.hooplab.dto.RosterEntryDto;
-import com.hooplab.dto.RosterPlayerDto;
-import com.hooplab.dto.StandingDto;
-import com.hooplab.dto.TeamGameLogDto;
-import com.hooplab.dto.TeamMapDto;
-import com.hooplab.dto.TeamSeasonStatsDto;
-import com.hooplab.dto.TeamSummaryDto;
-import com.hooplab.dto.TrendPointDto;
+import com.hooplab.data.DataClient;
+import com.hooplab.data.FetchParser;
+import com.hooplab.dto.*;
 import com.hooplab.exception.ApiException;
-import com.hooplab.ingestion.IngestionClient;
-import com.hooplab.ingestion.IngestionMapper;
-import com.hooplab.dto.LineupDto;
-import com.hooplab.repository.PlayerSeasonStatsRepository;
-import com.hooplab.repository.TeamClutchStatsRepository;
-import com.hooplab.repository.TeamGameLogRepository;
-import com.hooplab.repository.TeamRepository;
-import com.hooplab.repository.TeamSeasonStatsRepository;
 import com.hooplab.util.JsonUtils;
 import com.hooplab.util.SeasonUtils;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class TeamService {
 
-    private final TeamRepository teamRepository;
-    private final TeamSeasonStatsRepository teamSeasonStatsRepository;
-    private final PlayerSeasonStatsRepository playerSeasonStatsRepository;
-    private final TeamGameLogRepository teamGameLogRepository;
-    private final TeamClutchStatsRepository teamClutchStatsRepository;
-    private final IngestionClient ingestionClient;
-    private final IngestionMapper ingestionMapper;
+    private final DataClient dataClient;
 
-    public TeamService(TeamRepository teamRepository,
-                       TeamSeasonStatsRepository teamSeasonStatsRepository,
-                       PlayerSeasonStatsRepository playerSeasonStatsRepository,
-                       TeamGameLogRepository teamGameLogRepository,
-                       TeamClutchStatsRepository teamClutchStatsRepository,
-                       IngestionClient ingestionClient,
-                       IngestionMapper ingestionMapper) {
-        this.teamRepository = teamRepository;
-        this.teamSeasonStatsRepository = teamSeasonStatsRepository;
-        this.playerSeasonStatsRepository = playerSeasonStatsRepository;
-        this.teamGameLogRepository = teamGameLogRepository;
-        this.teamClutchStatsRepository = teamClutchStatsRepository;
-        this.ingestionClient = ingestionClient;
-        this.ingestionMapper = ingestionMapper;
+    public TeamService(DataClient dataClient) {
+        this.dataClient = dataClient;
     }
 
     @Cacheable("teams")
     public List<TeamSummaryDto> list() {
-        return teamRepository.findAll().stream().map(this::toSummary).toList();
+        return FetchParser.parseTeams(dataClient.fetchTeams());
     }
 
     @Cacheable(value = "teams", key = "#id")
     public TeamSummaryDto getById(int id) {
-        Team team = teamRepository.findById(id)
+        return list().stream()
+                .filter(t -> t.id().equals(id))
+                .findFirst()
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND.value(), "Team not found"));
-        return toSummary(team);
     }
 
+    @Cacheable(value = "semiLive", key = "'team-seasons:' + #id")
     public List<TeamSeasonStatsDto> getSeasons(int id) {
-        if (!teamRepository.existsById(id)) {
-            throw new ApiException(HttpStatus.NOT_FOUND.value(), "Team not found");
+        getById(id);
+        List<TeamSeasonStatsDto> seasons = new ArrayList<>();
+        for (String s : SeasonUtils.seasonRange(8)) {
+            JsonNode stats = dataClient.fetchTeamSeasonStats(s, "Advanced");
+            seasons.addAll(FetchParser.parseTeamSeasons(stats, id));
         }
-        return teamSeasonStatsRepository.findByTeamTeamIdOrderByIdSeasonDesc(id).stream()
-                .map(this::toSeasonStats)
-                .toList();
+        return seasons;
     }
 
     @Cacheable(value = "teamMap", key = "#season")
     public List<TeamMapDto> getMap(String season) {
         String resolvedSeason = season != null ? season : SeasonUtils.currentSeason();
-        Map<Integer, Double> clutchByTeam = new HashMap<>();
-        teamClutchStatsRepository.findBySeason(resolvedSeason)
-                .forEach(c -> clutchByTeam.put(c.getId().getTeamId(), c.getNetRtg()));
-        return teamSeasonStatsRepository.findMapData(resolvedSeason).stream()
-                .map(stats -> toMapDto(stats, clutchByTeam.get(stats.getId().getTeamId())))
-                .toList();
+        Map<Integer, TeamSummaryDto> teamsById = FetchParser.teamsById(list());
+        JsonNode teamStats = dataClient.fetchTeamSeasonStats(resolvedSeason, "Advanced");
+        JsonNode clutch = dataClient.fetchTeamClutch(resolvedSeason, "Advanced");
+        return FetchParser.parseTeamMap(teamStats, clutch, resolvedSeason, teamsById);
     }
 
     @Cacheable(value = "lineups", key = "#id + ':' + (#season == null ? 'current' : #season)")
     public List<LineupDto> getLineups(int id, String season) {
-        if (!teamRepository.existsById(id)) {
-            throw new ApiException(HttpStatus.NOT_FOUND.value(), "Team not found");
-        }
+        getById(id);
         String resolvedSeason = season != null ? season : SeasonUtils.currentSeason();
-        JsonNode response = ingestionClient.fetchLineups(id, resolvedSeason);
+        JsonNode response = dataClient.fetchLineups(id, resolvedSeason);
         JsonNode records = response.get("records");
         List<LineupDto> lineups = new ArrayList<>();
         if (records != null && records.isArray()) {
@@ -124,62 +83,27 @@ public class TeamService {
                 .toList();
     }
 
-    @Cacheable(value = "standings", key = "#season + ':' + (#conference == null ? 'all' : #conference)")
-    public List<StandingDto> getStandings(String season, String conference) {
-        String resolvedSeason = season != null ? season : SeasonUtils.currentSeason();
-        List<TeamSeasonStats> stats = teamSeasonStatsRepository.findStandings(resolvedSeason, conference);
-        AtomicInteger rank = new AtomicInteger(1);
-        return stats.stream()
-                .map(entry -> toStanding(rank.getAndIncrement(), entry))
-                .toList();
-    }
-
     @Cacheable(value = "roster", key = "#id + ':' + #season")
     public List<RosterEntryDto> getRoster(int id, String season) {
-        if (!teamRepository.existsById(id)) {
-            throw new ApiException(HttpStatus.NOT_FOUND.value(), "Team not found");
-        }
+        getById(id);
         String resolvedSeason = season != null ? season : SeasonUtils.currentSeason();
-        return playerSeasonStatsRepository.findRoster(resolvedSeason, id).stream()
-                .map(this::toRosterEntry)
-                .toList();
+        JsonNode stats = dataClient.fetchPlayerSeasonStats(resolvedSeason, "Base");
+        return FetchParser.parseRoster(stats, id, resolvedSeason);
     }
 
-    @Transactional
+    @Cacheable(value = "semiLive", key = "'team-gamelog:' + #id + ':' + #season")
     public List<TeamGameLogDto> getGameLog(int id, String season) {
-        Team team = teamRepository.findById(id)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND.value(), "Team not found"));
+        getById(id);
         String resolvedSeason = season != null ? season : SeasonUtils.currentSeason();
-
-        List<TeamGameLog> cached = teamGameLogRepository
-                .findByTeamTeamIdAndSeasonOrderByGameDateAsc(id, resolvedSeason);
-        if (!cached.isEmpty()) {
-            return cached.stream().map(this::toGameLog).toList();
-        }
-
-        JsonNode response = ingestionClient.fetchTeamGameLog(id, resolvedSeason);
-        JsonNode records = response.get("records");
-        if (records == null || !records.isArray() || records.isEmpty()) {
-            return List.of();
-        }
-
-        teamGameLogRepository.deleteByTeamTeamIdAndSeason(id, resolvedSeason);
-        for (JsonNode row : records) {
-            teamGameLogRepository.save(ingestionMapper.toTeamGameLog(row, team, resolvedSeason));
-        }
-
-        return teamGameLogRepository.findByTeamTeamIdAndSeasonOrderByGameDateAsc(id, resolvedSeason).stream()
-                .map(this::toGameLog)
-                .toList();
+        JsonNode response = dataClient.fetchTeamGameLog(id, resolvedSeason);
+        return FetchParser.parseTeamGameLog(response);
     }
 
     @Cacheable(value = "officialRoster", key = "#id + ':' + (#season == null ? 'current' : #season)")
     public OfficialRosterDto getOfficialRoster(int id, String season) {
-        if (!teamRepository.existsById(id)) {
-            throw new ApiException(HttpStatus.NOT_FOUND.value(), "Team not found");
-        }
+        getById(id);
         String resolvedSeason = season != null ? season : SeasonUtils.currentSeason();
-        JsonNode response = ingestionClient.fetchTeamRoster(id, resolvedSeason);
+        JsonNode response = dataClient.fetchTeamRoster(id, resolvedSeason);
 
         List<RosterPlayerDto> players = new ArrayList<>();
         JsonNode playerRows = response.get("players");
@@ -214,104 +138,54 @@ public class TeamService {
 
     @Cacheable(value = "trends", key = "'team:' + #id + ':' + #stat")
     public List<TrendPointDto> getTrends(int id, String stat) {
-        if (!teamRepository.existsById(id)) {
-            throw new ApiException(HttpStatus.NOT_FOUND.value(), "Team not found");
+        getById(id);
+        String measure = teamTrendMeasure(stat);
+        List<TrendPointDto> points = new ArrayList<>();
+        for (String s : SeasonUtils.seasonRange(8)) {
+            JsonNode stats = dataClient.fetchTeamSeasonStats(s, measure);
+            points.addAll(FetchParser.parseTeamTrends(stats, id, stat, s));
         }
-        return teamSeasonStatsRepository.findByTeamTeamIdOrderByIdSeasonAsc(id).stream()
-                .map(entry -> new TrendPointDto(
-                        entry.getId().getSeason(),
-                        StatTrendExtractor.teamValue(entry, stat)))
+        return points.stream()
+                .filter(p -> p.season() != null && p.value() != null)
+                .sorted(Comparator.comparing(TrendPointDto::season))
                 .toList();
     }
 
-    private TeamSummaryDto toSummary(Team team) {
-        return new TeamSummaryDto(
-                team.getTeamId(),
-                team.getAbbreviation(),
-                team.getCity(),
-                team.getName(),
-                team.getFullName(),
-                team.getConference(),
-                team.getDivision(),
-                team.getYearFounded()
-        );
+    private static String teamTrendMeasure(String stat) {
+        if (stat == null) {
+            return "Advanced";
+        }
+        return switch (stat.trim().toUpperCase()) {
+            case "WIN_PCT", "W_PCT", "PTS", "PPG", "REB", "AST" -> "Base";
+            default -> "Advanced";
+        };
     }
 
-    private TeamSeasonStatsDto toSeasonStats(TeamSeasonStats stats) {
-        return new TeamSeasonStatsDto(
-                stats.getId().getSeason(),
-                stats.getWins(),
-                stats.getLosses(),
-                stats.getOffRtg(),
-                stats.getDefRtg(),
-                stats.getNetRtg(),
-                stats.getPace(),
-                stats.getPts(),
-                stats.getReb(),
-                stats.getAst()
-        );
+    @Cacheable(value = "teams", key = "'info:' + #id + ':' + (#season == null ? 'cur' : #season)")
+    public String getInfo(int id, String season) {
+        String s = season != null ? season : SeasonUtils.currentSeason();
+        return dataClient.getTeamDepth("/team/" + id + "/info?season=" + s);
     }
 
-    private TeamMapDto toMapDto(TeamSeasonStats stats, Double clutchNetRtg) {
-        Team team = stats.getTeam();
-        return new TeamMapDto(
-                team.getTeamId(),
-                team.getAbbreviation(),
-                team.getName(),
-                team.getFullName(),
-                team.getLatitude(),
-                team.getLongitude(),
-                stats.getWins(),
-                stats.getLosses(),
-                StatTrendExtractor.winPct(stats),
-                stats.getNetRtg(),
-                clutchNetRtg,
-                team.getConference()
-        );
+    @Cacheable(value = "teams", key = "'yby:' + #id")
+    public String getYearByYear(int id) {
+        return dataClient.getTeamDepth("/team/" + id + "/year-by-year");
     }
 
-    private RosterEntryDto toRosterEntry(PlayerSeasonStats stats) {
-        return new RosterEntryDto(
-                stats.getPlayer().getPlayerId(),
-                stats.getPlayer().getFullName(),
-                stats.getPlayer().getPosition(),
-                stats.getGp(),
-                stats.getMin(),
-                stats.getPts(),
-                stats.getReb(),
-                stats.getAst(),
-                stats.getFgPct(),
-                stats.getFg3Pct(),
-                stats.getTsPct(),
-                stats.getUsgPct()
-        );
+    @Cacheable(value = "semiLive", key = "'tsplits:' + #id + ':' + #type + ':' + (#season == null ? 'cur' : #season)")
+    public String getTeamSplits(int id, String type, String season) {
+        String s = season != null ? season : SeasonUtils.currentSeason();
+        return dataClient.getTeamDepth("/team/" + id + "/splits?type=" + type + "&season=" + s);
     }
 
-    private TeamGameLogDto toGameLog(TeamGameLog log) {
-        return new TeamGameLogDto(
-                log.getGameId(),
-                log.getGameDate(),
-                log.getMatchup(),
-                log.getWl(),
-                log.getPts(),
-                log.getReb(),
-                log.getAst(),
-                log.getPlusMinus()
-        );
+    @Cacheable(value = "semiLive", key = "'onoff:' + #id + ':' + (#season == null ? 'cur' : #season)")
+    public String getOnOff(int id, String season) {
+        String s = season != null ? season : SeasonUtils.currentSeason();
+        return dataClient.getTeamDepth("/team/" + id + "/on-off?season=" + s);
     }
 
-    private StandingDto toStanding(int rank, TeamSeasonStats stats) {
-        Team team = stats.getTeam();
-        return new StandingDto(
-                rank,
-                team.getTeamId(),
-                team.getAbbreviation(),
-                team.getFullName(),
-                team.getConference(),
-                stats.getWins(),
-                stats.getLosses(),
-                StatTrendExtractor.winPct(stats),
-                stats.getNetRtg()
-        );
+    @Cacheable(value = "teams", key = "'franchise:' + #id")
+    public String getFranchiseLeaders(int id) {
+        return dataClient.getTeamDepth("/team/" + id + "/franchise-leaders");
     }
 }

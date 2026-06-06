@@ -20,9 +20,9 @@ function TeamAdvancedTable({
   players: AdvancedRow[]
 }) {
   return (
-    <Card className="border border-gray-200">
-      <CardHeader className="border-b border-gray-100 pb-4">
-        <CardTitle className="flex items-center gap-3 text-gray-900">
+    <Card className="">
+      <CardHeader className="border-b border-border pb-4">
+        <CardTitle className="flex items-center gap-3 text-foreground">
           <TeamLogo abbreviation={team.abbreviation ?? ''} className="h-7 w-7" />
           {team.name ?? team.abbreviation}
         </CardTitle>
@@ -30,7 +30,7 @@ function TeamAdvancedTable({
       <CardContent className="p-0">
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-xs">
-            <thead className="border-b border-gray-200 bg-gray-50 text-gray-600">
+            <thead className="border-b border-border bg-muted text-muted-foreground">
               <tr>
                 <th className="px-3 py-2 font-medium">Player</th>
                 {columns.map((col) => (
@@ -40,23 +40,23 @@ function TeamAdvancedTable({
             </thead>
             <tbody>
               {players.map((player) => (
-                <tr key={player.playerId} className="border-b border-gray-100 last:border-0">
+                <tr key={player.playerId} className="border-b border-border last:border-0">
                   <td className="px-3 py-2">
-                    <Link to={`/players/${player.playerId}`} className="font-medium text-gray-900 hover:text-orange-600">
+                    <Link to={`/players/${player.playerId}`} className="font-medium text-foreground hover:text-brand">
                       {player.name}
                     </Link>
                   </td>
                   {player.values.map((value, idx) => (
-                    <td key={idx} className="px-2 py-2 text-right text-gray-700">
+                    <td key={idx} className="px-2 py-2 text-right text-muted-foreground">
                       {formatValue(columns[idx], value)}
                     </td>
                   ))}
                 </tr>
               ))}
-              <tr className="border-t-2 border-gray-200 bg-gray-50 font-semibold">
-                <td className="px-3 py-2 text-gray-900">Team</td>
+              <tr className="border-t-2 border-border bg-muted font-semibold">
+                <td className="px-3 py-2 text-foreground">Team</td>
                 {team.values.map((value, idx) => (
-                  <td key={idx} className="px-2 py-2 text-right text-gray-900">
+                  <td key={idx} className="px-2 py-2 text-right text-foreground">
                     {formatValue(columns[idx], value)}
                   </td>
                 ))}
@@ -72,19 +72,28 @@ function TeamAdvancedTable({
 export function AdvancedBoxScoreTable({
   gameId,
   measure,
+  enabled = true,
 }: {
   gameId: string
   measure: 'advanced' | 'fourfactors'
+  enabled?: boolean
 }) {
   const { data, isLoading, error } = useQuery({
     queryKey: ['adv-boxscore', gameId, measure],
     queryFn: () => api<AdvancedBoxScore>(`/api/games/${gameId}/boxscore/advanced?measure=${measure}`),
-    enabled: !!gameId,
+    enabled: !!gameId && enabled,
     retry: 1,
   })
 
-  if (isLoading) return <p className="text-gray-500">Loading {measure} box score…</p>
-  if (error || !data) return <p className="text-gray-400">No {measure} box score available for this game.</p>
+  if (!enabled) {
+    return (
+      <p className="text-muted-foreground">
+        {measure} stats are available after the game ends or when the NBA stats feed publishes box score data.
+      </p>
+    )
+  }
+  if (isLoading) return <p className="text-muted-foreground">Loading {measure} box score…</p>
+  if (error || !data) return <p className="text-muted-foreground">No {measure} box score available for this game.</p>
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">

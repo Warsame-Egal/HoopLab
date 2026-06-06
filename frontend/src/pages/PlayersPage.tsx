@@ -2,24 +2,31 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { PlayerHeadshot } from '../components/PlayerHeadshot'
+import { QueryErrorState } from '../components/QueryErrorState'
+import { Skeleton } from '../components/ui/Skeleton'
+import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { api, type PageResponse, type PlayerSummary } from '../lib/api'
+import { useSeason } from '../lib/useSeason'
 
 export function PlayersPage() {
+  const { season } = useSeason()
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebouncedValue(search, 300)
   const [page, setPage] = useState(0)
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['players', search, page],
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['players', season, debouncedSearch, page],
     queryFn: () =>
       api<PageResponse<PlayerSummary>>(
-        `/api/players?search=${encodeURIComponent(search)}&page=${page}&size=20`,
+        `/api/players?season=${season}&search=${encodeURIComponent(debouncedSearch)}&page=${page}&size=20`,
       ),
+    retry: 2,
   })
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-semibold tracking-tight text-gray-900">Players</h2>
+        <h2 className="text-2xl font-semibold tracking-tight text-foreground">Players</h2>
         <input
           value={search}
           onChange={(e) => {
@@ -27,11 +34,18 @@ export function PlayersPage() {
             setPage(0)
           }}
           placeholder="Search players..."
-          className="mt-4 w-full max-w-md rounded-lg border border-gray-300 bg-white px-4 py-2 text-gray-900 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+          aria-label="Search players"
+          className="mt-4 w-full max-w-md rounded-lg border border-border bg-card px-4 py-2 text-foreground outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20"
         />
       </div>
       {isLoading ? (
-        <p className="text-gray-500">Loading...</p>
+        <div className="space-y-3">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} className="h-20 w-full" />
+          ))}
+        </div>
+      ) : isError ? (
+        <QueryErrorState onRetry={() => refetch()} />
       ) : (
         <>
           <div className="grid gap-3">
@@ -39,16 +53,12 @@ export function PlayersPage() {
               <Link
                 key={player.id}
                 to={`/players/${player.id}`}
-                className="flex items-center gap-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition hover:border-orange-300 hover:shadow"
+                className="flex items-center gap-4 rounded-xl bg-card p-4 shadow-sm transition hover:border-brand/40 hover:shadow"
               >
-                <PlayerHeadshot
-                  playerId={player.id}
-                  name={player.fullName}
-                  className="h-14 w-14"
-                />
+                <PlayerHeadshot playerId={player.id} name={player.fullName} className="h-14 w-14" />
                 <div>
-                  <p className="font-medium text-gray-900">{player.fullName}</p>
-                  <p className="text-sm text-gray-500">
+                  <p className="font-medium text-foreground">{player.fullName}</p>
+                  <p className="text-sm text-muted-foreground">
                     {player.position ?? '—'} · {player.teamAbbreviation ?? 'FA'}
                   </p>
                 </div>
@@ -59,8 +69,8 @@ export function PlayersPage() {
             <button
               type="button"
               disabled={page === 0}
-              onClick={() => setPage((p) => p - 1)}
-              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-gray-700 transition hover:bg-gray-50 disabled:opacity-40"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              className="rounded-lg border border-border px-4 py-2 text-sm disabled:opacity-40"
             >
               Previous
             </button>
@@ -68,7 +78,7 @@ export function PlayersPage() {
               type="button"
               disabled={!data || page >= data.totalPages - 1}
               onClick={() => setPage((p) => p + 1)}
-              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-gray-700 transition hover:bg-gray-50 disabled:opacity-40"
+              className="rounded-lg border border-border px-4 py-2 text-sm disabled:opacity-40"
             >
               Next
             </button>

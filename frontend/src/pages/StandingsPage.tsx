@@ -1,64 +1,97 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { TeamLogo } from '../components/TeamLogo'
+import { Badge } from '../components/ui/Badge'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
+import { StatTable, type StatColumn } from '../components/ui/StatTable'
 import { api, type StandingRow } from '../lib/api'
+import { parseClinchStatus, STANDINGS_STATUS_LEGEND } from '../lib/standingsStatus'
 import { cn } from '../lib/utils'
-import { useSeason } from '../lib/season'
+import { useSeason } from '../lib/useSeason'
+
+const PLAY_IN_RANK = 10
+
+function standingColumns(): StatColumn<StandingRow>[] {
+  return [
+    { key: 'confRank', header: '#', align: 'right', numeric: true, render: (r) => r.confRank ?? '—' },
+    {
+      key: 'abbreviation',
+      header: 'Team',
+      render: (r) => {
+        const status = parseClinchStatus(r.clinch)
+        return (
+          <Link to={`/teams/${r.teamId}`} className="flex items-center gap-2 font-medium text-foreground hover:text-brand">
+            <TeamLogo abbreviation={r.abbreviation} teamId={r.teamId} className="h-6 w-6" />
+            <span>{r.fullName}</span>
+            {status ? <Badge variant={status.variant}>{status.label}</Badge> : null}
+          </Link>
+        )
+      },
+    },
+    { key: 'wins', header: 'W', align: 'right', numeric: true, render: (r) => r.wins ?? '—' },
+    { key: 'losses', header: 'L', align: 'right', numeric: true, render: (r) => r.losses ?? '—' },
+    {
+      key: 'winPct',
+      header: 'PCT',
+      align: 'right',
+      numeric: true,
+      render: (r) => (r.winPct == null ? '—' : r.winPct.toFixed(3).replace(/^0/, '')),
+    },
+    {
+      key: 'gamesBack',
+      header: 'GB',
+      align: 'right',
+      numeric: true,
+      render: (r) => (r.gamesBack == null || r.gamesBack === 0 ? '—' : r.gamesBack.toFixed(1)),
+    },
+    { key: 'lastTen', header: 'L10', align: 'center', render: (r) => r.lastTen ?? '—' },
+    {
+      key: 'streak',
+      header: 'STRK',
+      align: 'center',
+      render: (r) => (
+        <Badge
+          variant={r.streak?.startsWith('W') ? 'success' : r.streak?.startsWith('L') ? 'live' : 'default'}
+          className="tabular-nums"
+        >
+          {r.streak ?? '—'}
+        </Badge>
+      ),
+    },
+    {
+      key: 'netRtg',
+      header: 'NET',
+      align: 'right',
+      numeric: true,
+      render: (r) => (
+        <span className={cn('tabular-nums', (r.netRtg ?? 0) >= 0 ? 'text-success' : 'text-live')}>
+          {r.netRtg == null ? '—' : r.netRtg.toFixed(1)}
+        </span>
+      ),
+    },
+  ]
+}
 
 function ConferenceTable({ title, rows }: { title: string; rows: StandingRow[] }) {
+  const cols = standingColumns()
   return (
-    <Card className="border border-gray-200">
-      <CardHeader className="border-b border-gray-100 pb-4">
-        <CardTitle className="text-gray-900">{title}</CardTitle>
+    <Card>
+      <CardHeader className="border-b border-border pb-4">
+        <CardTitle className="text-foreground">{title}</CardTitle>
       </CardHeader>
-      <CardContent className="p-0">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
-              <tr>
-                <th className="px-3 py-2 font-medium">#</th>
-                <th className="px-3 py-2 font-medium">Team</th>
-                <th className="px-2 py-2 text-right font-medium">W</th>
-                <th className="px-2 py-2 text-right font-medium">L</th>
-                <th className="px-2 py-2 text-right font-medium">PCT</th>
-                <th className="px-2 py-2 text-right font-medium">GB</th>
-                <th className="px-2 py-2 text-center font-medium">L10</th>
-                <th className="px-2 py-2 text-center font-medium">Strk</th>
-                <th className="px-2 py-2 text-right font-medium">Net</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.teamId} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                  <td className="px-3 py-2 text-gray-500">{row.confRank ?? '—'}</td>
-                  <td className="px-3 py-2">
-                    <Link to={`/teams/${row.teamId}`} className="flex items-center gap-2 font-medium text-gray-900 hover:text-orange-600">
-                      <TeamLogo abbreviation={row.abbreviation} className="h-6 w-6" />
-                      {row.abbreviation}
-                      {row.clinch ? <span className="text-xs text-emerald-600">{row.clinch}</span> : null}
-                    </Link>
-                  </td>
-                  <td className="px-2 py-2 text-right text-gray-700">{row.wins ?? '—'}</td>
-                  <td className="px-2 py-2 text-right text-gray-700">{row.losses ?? '—'}</td>
-                  <td className="px-2 py-2 text-right text-gray-700">
-                    {row.winPct == null ? '—' : row.winPct.toFixed(3).replace(/^0/, '')}
-                  </td>
-                  <td className="px-2 py-2 text-right text-gray-500">
-                    {row.gamesBack == null || row.gamesBack === 0 ? '—' : row.gamesBack.toFixed(1)}
-                  </td>
-                  <td className="px-2 py-2 text-center text-gray-600">{row.lastTen ?? '—'}</td>
-                  <td className={cn('px-2 py-2 text-center font-medium', row.streak?.startsWith('W') ? 'text-emerald-600' : row.streak?.startsWith('L') ? 'text-red-600' : 'text-gray-500')}>
-                    {row.streak ?? '—'}
-                  </td>
-                  <td className={cn('px-2 py-2 text-right tabular-nums', (row.netRtg ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600')}>
-                    {row.netRtg == null ? '—' : row.netRtg.toFixed(1)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <CardContent className="p-0 pt-2">
+        <StatTable
+          columns={cols}
+          rows={rows}
+          getRowKey={(r) => r.teamId}
+          emptyTitle="No standings"
+          emptyDescription="Standings unavailable for this season."
+        />
+        {rows.some((r) => (r.confRank ?? 99) === PLAY_IN_RANK) ? (
+          <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+            — Play-in cutoff (rank {PLAY_IN_RANK})
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   )
@@ -79,19 +112,30 @@ export function StandingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-sm font-medium uppercase tracking-widest text-orange-600">Season {season}</p>
-        <h2 className="text-2xl font-semibold tracking-tight text-gray-900">Standings</h2>
-        <p className="text-sm text-gray-500">Conference rankings, streaks & net rating</p>
+        <h2 className="text-2xl font-semibold tracking-tight text-foreground">Standings</h2>
+        <p className="text-sm text-muted-foreground">
+          <span className="text-muted-foreground">{season}</span> · Conference rankings, streaks & net rating
+        </p>
       </div>
       {isLoading ? (
-        <p className="text-gray-500">Loading standings…</p>
+        <StatTable columns={[{ key: 'x', header: '…' }]} rows={[]} getRowKey={() => 'x'} loading />
       ) : rows.length === 0 ? (
-        <p className="text-gray-400">No standings ingested for {season} yet. Run an admin ingest to populate.</p>
+        <p className="text-muted-foreground">No standings for {season}.</p>
       ) : (
-        <div className="grid gap-6 xl:grid-cols-2">
-          <ConferenceTable title="Eastern Conference" rows={east} />
-          <ConferenceTable title="Western Conference" rows={west} />
-        </div>
+        <>
+          <div className="grid gap-6 xl:grid-cols-2">
+            <ConferenceTable title="Eastern Conference" rows={east} />
+            <ConferenceTable title="Western Conference" rows={west} />
+          </div>
+          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            <span>Status:</span>
+            {STANDINGS_STATUS_LEGEND.map((item) => (
+              <Badge key={item.label} variant={item.variant}>
+                {item.label}
+              </Badge>
+            ))}
+          </div>
+        </>
       )}
     </div>
   )

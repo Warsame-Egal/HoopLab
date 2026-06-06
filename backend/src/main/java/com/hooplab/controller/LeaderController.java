@@ -23,7 +23,9 @@ public class LeaderController {
     public List<LeaderDto> leaders(
             @RequestParam(required = false) String season,
             @RequestParam(defaultValue = "PTS") String category,
+            @RequestParam(required = false) String statCategory,
             @RequestParam(defaultValue = "25") int limit) {
-        return leaderService.getLeaders(season, category, limit);
+        String resolved = statCategory != null ? statCategory : category;
+        return leaderService.getLeaders(season, resolved, limit);
     }
 }

@@ -8,20 +8,6 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: hooplab
-          POSTGRES_USER: hooplab
-          POSTGRES_PASSWORD: changeme
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U hooplab -d hooplab"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -32,23 +18,23 @@ jobs:
       - name: Build and test backend
         working-directory: backend
         env:
-          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/hooplab
-          POSTGRES_USER: hooplab
-          POSTGRES_PASSWORD: changeme
-        run: mvn -B verify
+          DATA_BASE_URL: http://localhost:8000
+        run: mvn -B test
 
-  ingestion:
+  data:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Verify ingestion imports
-        working-directory: ingestion
+      - name: Verify data service imports and tests
+        working-directory: data
         run: |
-          pip install -r requirements.txt
+          pip install -r requirements.txt -r requirements-dev.txt
           python -c "from app.main import app; print(len(app.routes))"
+          ruff check app tests
+          pytest -q
 
   frontend:
     runs-on: ubuntu-latest
@@ -63,4 +49,6 @@ jobs:
         working-directory: frontend
         run: |
           npm ci
+          npm run lint
+          npm test -- --run
           npm run build

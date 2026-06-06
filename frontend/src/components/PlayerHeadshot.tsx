@@ -22,7 +22,7 @@ export function PlayerHeadshot({ playerId, name, className }: PlayerHeadshotProp
     return (
       <div
         className={cn(
-          'flex shrink-0 items-center justify-center rounded-full border border-gray-200 bg-gray-100 text-xs font-semibold text-gray-500',
+          'flex shrink-0 items-center justify-center rounded-full border border-border bg-muted text-xs font-semibold text-muted-foreground',
           className,
         )}
       >
@@ -36,7 +36,7 @@ export function PlayerHeadshot({ playerId, name, className }: PlayerHeadshotProp
       src={getPlayerHeadshotUrl(playerId)}
       alt={name}
       className={cn(
-        'shrink-0 rounded-full border border-gray-200 bg-gray-100 object-cover object-top',
+        'shrink-0 rounded-full border border-border bg-muted object-cover object-top',
         className,
       )}
       onError={() => setFailed(true)}

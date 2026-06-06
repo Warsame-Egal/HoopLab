@@ -9,6 +9,7 @@ import com.hooplab.dto.PlayerSummaryDto;
 import com.hooplab.dto.ShotDto;
 import com.hooplab.dto.TrendPointDto;
 import com.hooplab.service.PlayerService;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -70,5 +71,28 @@ public class PlayerController {
             @PathVariable int id,
             @RequestParam(defaultValue = "PTS") String stat) {
         return playerService.getTrends(id, stat);
+    }
+
+    @GetMapping(value = "/{id}/awards", produces = MediaType.APPLICATION_JSON_VALUE)
+    public String awards(@PathVariable int id) {
+        return playerService.getAwards(id);
+    }
+
+    @GetMapping(value = "/{id}/next-games", produces = MediaType.APPLICATION_JSON_VALUE)
+    public String nextGames(@PathVariable int id) {
+        return playerService.getNextGames(id);
+    }
+
+    @GetMapping(value = "/{id}/splits", produces = MediaType.APPLICATION_JSON_VALUE)
+    public String splits(
+            @PathVariable int id,
+            @RequestParam(defaultValue = "general") String type,
+            @RequestParam(required = false) String season) {
+        return playerService.getPlayerSplits(id, type, season);
+    }
+
+    @GetMapping(value = "/{id}/estimated-metrics", produces = MediaType.APPLICATION_JSON_VALUE)
+    public String estimated(@PathVariable int id, @RequestParam(required = false) String season) {
+        return playerService.getEstimatedMetrics(id, season);
     }
 }

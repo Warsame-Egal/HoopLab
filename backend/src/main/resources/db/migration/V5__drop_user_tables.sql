@@ -1,3 +1,0 @@
-DROP TABLE IF EXISTS saved_views;
-DROP TABLE IF EXISTS favorites;
-DROP TABLE IF EXISTS users;

@@ -3,13 +3,13 @@ package com.hooplab.controller;
 import com.hooplab.dto.LineupDto;
 import com.hooplab.dto.OfficialRosterDto;
 import com.hooplab.dto.RosterEntryDto;
-import com.hooplab.dto.StandingDto;
 import com.hooplab.dto.TeamGameLogDto;
 import com.hooplab.dto.TeamMapDto;
 import com.hooplab.dto.TeamSeasonStatsDto;
 import com.hooplab.dto.TeamSummaryDto;
 import com.hooplab.dto.TrendPointDto;
 import com.hooplab.service.TeamService;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -36,13 +36,6 @@ public class TeamController {
     @GetMapping("/map")
     public List<TeamMapDto> map(@RequestParam(required = false) String season) {
         return teamService.getMap(season);
-    }
-
-    @GetMapping("/standings")
-    public List<StandingDto> standings(
-            @RequestParam(required = false) String season,
-            @RequestParam(required = false) String conference) {
-        return teamService.getStandings(season, conference);
     }
 
     @GetMapping("/{id}")
@@ -88,5 +81,33 @@ public class TeamController {
             @PathVariable int id,
             @RequestParam(required = false) String season) {
         return teamService.getLineups(id, season);
+    }
+
+    @GetMapping(value = "/{id}/info", produces = MediaType.APPLICATION_JSON_VALUE)
+    public String info(@PathVariable int id, @RequestParam(required = false) String season) {
+        return teamService.getInfo(id, season);
+    }
+
+    @GetMapping(value = "/{id}/year-by-year", produces = MediaType.APPLICATION_JSON_VALUE)
+    public String yearByYear(@PathVariable int id) {
+        return teamService.getYearByYear(id);
+    }
+
+    @GetMapping(value = "/{id}/splits", produces = MediaType.APPLICATION_JSON_VALUE)
+    public String splits(
+            @PathVariable int id,
+            @RequestParam(defaultValue = "general") String type,
+            @RequestParam(required = false) String season) {
+        return teamService.getTeamSplits(id, type, season);
+    }
+
+    @GetMapping(value = "/{id}/on-off", produces = MediaType.APPLICATION_JSON_VALUE)
+    public String onOff(@PathVariable int id, @RequestParam(required = false) String season) {
+        return teamService.getOnOff(id, season);
+    }
+
+    @GetMapping(value = "/{id}/franchise-leaders", produces = MediaType.APPLICATION_JSON_VALUE)
+    public String franchiseLeaders(@PathVariable int id) {
+        return teamService.getFranchiseLeaders(id);
     }
 }

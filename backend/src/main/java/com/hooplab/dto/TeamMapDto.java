@@ -9,7 +9,6 @@ public record TeamMapDto(
         Double longitude,
         Integer wins,
         Integer losses,
-        Double winPct,
         Double netRtg,
         Double clutchNetRtg,
         String conference

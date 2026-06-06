@@ -1,15 +1,29 @@
 import { useQuery } from '@tanstack/react-query'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { LucideIcon } from 'lucide-react'
-import { Activity, BarChart3, Flame, Target, TrendingUp, Trophy, Users } from 'lucide-react'
+import { BarChart3, Flame, TrendingUp, Trophy, Users } from 'lucide-react'
 import { DashboardTrends } from '../components/DashboardTrends'
 import { KpiCard } from '../components/KpiCard'
+import { FavoritesStrip } from '../components/FavoritesStrip'
+import {
+  OverviewLeagueAside,
+  OverviewLeagueStatsGrid,
+  OverviewLiveSection,
+} from '../components/OverviewSidebarPanels'
+import { TodaysGamesPanel } from '../components/TodaysGamesPanel'
+import { useLiveScoreboard } from '../hooks/useLiveScoreboard'
+import { useLiveNotifications } from '../hooks/useLiveNotifications'
 import { RecentGamesCard } from '../components/RecentGamesCard'
 import { TeamDetailSidebar } from '../components/TeamDetailSidebar'
 import { TeamMap, type MapMetric } from '../components/TeamMap'
+import { SegmentedControl } from '../components/ui/SegmentedControl'
+import { QueryErrorState } from '../components/QueryErrorState'
+import { Skeleton } from '../components/ui/Skeleton'
 import { api, type Overview, type TeamMapPoint } from '../lib/api'
 import { cn } from '../lib/utils'
-import { useSeason } from '../lib/season'
+import { teamWinPct } from '../lib/teamWinPct'
+import { TeamTrendPanel } from '../components/TeamTrendPanel'
+import { useSeason } from '../lib/useSeason'
 
 const METRIC_TABS: { key: MapMetric; label: string }[] = [
   { key: 'winPct', label: 'Win %' },
@@ -17,21 +31,122 @@ const METRIC_TABS: { key: MapMetric; label: string }[] = [
   { key: 'clutchNetRtg', label: 'Clutch' },
 ]
 
+type KpiConfig = {
+  label: string
+  value: string | number
+  suffix?: string
+  sub: string
+  icon: LucideIcon
+  tint: 'brand' | 'success' | 'info' | 'warning' | 'live'
+  delta?: number | null
+}
+
+function OverviewLoadingState({ season }: { season: string }) {
+  const [seconds, setSeconds] = useState(0)
+
+  useEffect(() => {
+    const start = Date.now()
+    const id = window.setInterval(() => {
+      setSeconds(Math.floor((Date.now() - start) / 1000))
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [season])
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Loading league overview for {season} from NBA APIs…{' '}
+        <span className="font-medium text-foreground">{seconds}s</span>
+      </p>
+      <OverviewSkeleton />
+    </div>
+  )
+}
+
+function OverviewSkeleton() {
+  return (
+    <div className="space-y-6">
+      <Skeleton className="h-16 w-full max-w-xl" />
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-28" />
+        ))}
+      </div>
+      <Skeleton className="min-h-[640px] w-full rounded-xl" />
+      <div className="grid gap-6 lg:grid-cols-12">
+        <Skeleton className="min-h-[320px] lg:col-span-7" />
+        <Skeleton className="min-h-[320px] lg:col-span-5" />
+      </div>
+      <Skeleton className="h-80 w-full rounded-xl" />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-36 rounded-xl" />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function OverviewPage() {
   const { season } = useSeason()
   const [mapMetric, setMapMetric] = useState<MapMetric>('winPct')
   const [selectedTeamId, setSelectedTeamId] = useState<number | null>(null)
   const [selectedPlayer, setSelectedPlayer] = useState<{ id: number; name: string } | null>(null)
 
-  const { data: overview, isLoading } = useQuery({
+  const {
+    data: overview,
+    isLoading,
+    isError: overviewError,
+    refetch: refetchOverview,
+  } = useQuery({
     queryKey: ['overview', season],
     queryFn: () => api<Overview>(`/api/analytics/overview?season=${season}`),
+    retry: 1,
+    staleTime: 5 * 60_000,
   })
 
-  const { data: teamMap, isLoading: isMapLoading } = useQuery({
+  const overviewReady = !!overview && !overviewError
+
+  const {
+    data: teamMap,
+    isLoading: isMapLoading,
+    isError: mapError,
+    refetch: refetchMap,
+  } = useQuery({
     queryKey: ['teamMap', season],
     queryFn: () => api<TeamMapPoint[]>(`/api/teams/map?season=${season}`),
+    enabled: overviewReady,
+    retry: 1,
+    staleTime: 5 * 60_000,
   })
+
+  const coreReady = overviewReady && !mapError
+  const [sidebarDelayDone, setSidebarDelayDone] = useState(false)
+
+  useEffect(() => {
+    if (!coreReady) return
+    const id = window.setTimeout(() => setSidebarDelayDone(true), 800)
+    return () => {
+      window.clearTimeout(id)
+      setSidebarDelayDone(false)
+    }
+  }, [coreReady, season])
+
+  const panelsReady = coreReady && sidebarDelayDone
+
+  const {
+    games: liveGames,
+    isToday,
+    liveCount,
+    isLoading: scoreboardLoading,
+    recentlyUpdated,
+  } = useLiveScoreboard(undefined, {
+    enabled: coreReady,
+    enableWebSocket: coreReady,
+    season,
+  })
+
+  useLiveNotifications(liveGames, isToday && panelsReady)
 
   const handleSelectTeam = useCallback((teamId: number) => {
     setSelectedTeamId(teamId)
@@ -47,193 +162,174 @@ export function OverviewPage() {
     setSelectedPlayer(null)
   }, [])
 
-  if (isLoading || isMapLoading || !overview) {
+  if (overviewError) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-orange-500" />
-          <p className="text-sm text-muted-foreground">Loading league dashboard…</p>
-        </div>
-      </div>
+      <QueryErrorState
+        message="Could not load overview. Check that backend (:8080) and data (:8000) are running."
+        onRetry={() => {
+          void refetchOverview()
+        }}
+      />
     )
   }
 
-  const teams = teamMap ?? []
-  const selectedTeam = teams.find((t) => t.teamId === selectedTeamId)
-  const validWinPct = teams.map((team) => team.winPct).filter((value): value is number => value != null)
-  const validNetRtg = teams.map((team) => team.netRtg).filter((value): value is number => value != null)
-
-  const avgWinPct = validWinPct.length > 0
-    ? validWinPct.reduce((sum, value) => sum + value, 0) / validWinPct.length
-    : 0
-  const avgNetRtg = validNetRtg.length > 0
-    ? validNetRtg.reduce((sum, value) => sum + value, 0) / validNetRtg.length
-    : 0
-
-  const validClutch = teams.map((team) => team.clutchNetRtg).filter((value): value is number => value != null)
-  const avgClutch = validClutch.length > 0
-    ? validClutch.reduce((sum, value) => sum + value, 0) / validClutch.length
-    : 0
-
-  const topByWinPct = [...teams].sort((a, b) => (b.winPct ?? Number.NEGATIVE_INFINITY) - (a.winPct ?? Number.NEGATIVE_INFINITY))[0]
-  const topByNetRtg = [...teams].sort((a, b) => (b.netRtg ?? Number.NEGATIVE_INFINITY) - (a.netRtg ?? Number.NEGATIVE_INFINITY))[0]
-  const lowestByNetRtg = [...teams].sort((a, b) => (a.netRtg ?? Number.POSITIVE_INFINITY) - (b.netRtg ?? Number.POSITIVE_INFINITY))[0]
-  const topByClutch = [...teams].sort((a, b) => (b.clutchNetRtg ?? Number.NEGATIVE_INFINITY) - (a.clutchNetRtg ?? Number.NEGATIVE_INFINITY))[0]
-
-  type FocusCard = {
-    label: string
-    value: string | number
-    suffix?: string
-    sub: string
-    icon: LucideIcon
-    iconBg: string
-    iconColor: string
+  if (isLoading || !overview) {
+    return <OverviewLoadingState season={season} />
   }
 
-  const focusCardsByMetric: Record<MapMetric, FocusCard[]> = {
+  const teams = teamMap ?? []
+  const mapStillLoading = isMapLoading || (!teamMap && !mapError)
+  const selectedTeam = teams.find((t) => t.teamId === selectedTeamId)
+  const hasSelection = selectedTeamId != null || selectedPlayer != null
+
+  const validNetRtg = teams.map((t) => t.netRtg).filter((v): v is number => v != null)
+  const validClutch = teams.map((t) => t.clutchNetRtg).filter((v): v is number => v != null)
+
+  const avgNetRtg = validNetRtg.length ? validNetRtg.reduce((a, b) => a + b, 0) / validNetRtg.length : 0
+  const avgClutch = validClutch.length ? validClutch.reduce((a, b) => a + b, 0) / validClutch.length : 0
+
+  const topByNetRtg = [...teams].sort((a, b) => (b.netRtg ?? -Infinity) - (a.netRtg ?? -Infinity))[0]
+  const lowestByNetRtg = [...teams].sort((a, b) => (a.netRtg ?? Infinity) - (b.netRtg ?? Infinity))[0]
+  const topByClutch = [...teams].sort((a, b) => (b.clutchNetRtg ?? -Infinity) - (a.clutchNetRtg ?? -Infinity))[0]
+
+  const validWinPct = teams.map((t) => teamWinPct(t)).filter((v): v is number => v != null)
+  const avgWinPct = validWinPct.length ? validWinPct.reduce((a, b) => a + b, 0) / validWinPct.length : 0
+  const above500 = teams.filter((t) => (teamWinPct(t) ?? 0) >= 50).length
+  const topByWinPct = [...teams].sort((a, b) => (teamWinPct(b) ?? -Infinity) - (teamWinPct(a) ?? -Infinity))[0]
+  const eliteTeams = teams.filter((t) => (teamWinPct(t) ?? 0) >= 55).length
+
+  const focusCardsByMetric: Record<MapMetric, KpiConfig[]> = {
     winPct: [
       {
-        label: 'League Win %',
-        value: (avgWinPct * 100).toFixed(1),
+        label: 'Avg Win %',
+        value: avgWinPct.toFixed(1),
         suffix: '%',
-        sub: 'Average team winning rate',
-        icon: Trophy,
-        iconBg: 'bg-blue-100',
-        iconColor: 'text-blue-600',
+        sub: 'Across all teams',
+        icon: BarChart3,
+        tint: 'info',
       },
       {
         label: 'Above .500',
-        value: teams.filter((team) => (team.winPct ?? 0) >= 0.5).length,
+        value: above500,
         sub: 'Teams at or above 50%',
         icon: TrendingUp,
-        iconBg: 'bg-emerald-100',
-        iconColor: 'text-emerald-600',
+        tint: 'success',
       },
       {
         label: 'Elite Teams',
-        value: teams.filter((team) => (team.winPct ?? 0) >= 0.6).length,
-        sub: 'Teams at or above 60%',
-        icon: Activity,
-        iconBg: 'bg-violet-100',
-        iconColor: 'text-violet-600',
+        value: eliteTeams,
+        sub: 'Teams above 55% win rate',
+        icon: Trophy,
+        tint: 'brand',
       },
       {
         label: 'Best Record',
-        value: topByWinPct ? `${topByWinPct.wins ?? 0}-${topByWinPct.losses ?? 0}` : '—',
-        sub: topByWinPct?.abbreviation ?? 'No team data',
-        icon: Target,
-        iconBg: 'bg-amber-100',
-        iconColor: 'text-amber-600',
+        value: topByWinPct ? `${topByWinPct.wins ?? 0}–${topByWinPct.losses ?? 0}` : '—',
+        sub: topByWinPct?.abbreviation ?? '—',
+        icon: Users,
+        tint: 'live',
+        delta: topByWinPct ? (teamWinPct(topByWinPct) ?? 0) - avgWinPct : null,
       },
     ],
     netRtg: [
       {
-        label: 'League Net Rating',
+        label: 'Net Rating Avg',
         value: avgNetRtg.toFixed(1),
         sub: 'Average team net rating',
         icon: BarChart3,
-        iconBg: 'bg-blue-100',
-        iconColor: 'text-blue-600',
+        tint: 'info',
+        delta: 0,
       },
       {
         label: 'Positive Net',
-        value: teams.filter((team) => (team.netRtg ?? Number.NEGATIVE_INFINITY) > 0).length,
+        value: teams.filter((t) => (t.netRtg ?? -Infinity) > 0).length,
         sub: 'Teams above zero net rating',
         icon: TrendingUp,
-        iconBg: 'bg-emerald-100',
-        iconColor: 'text-emerald-600',
+        tint: 'success',
       },
       {
         label: 'Top Net Team',
         value: topByNetRtg?.netRtg?.toFixed(1) ?? '—',
-        sub: topByNetRtg?.abbreviation ?? 'No team data',
+        sub: topByNetRtg?.abbreviation ?? '—',
         icon: Trophy,
-        iconBg: 'bg-violet-100',
-        iconColor: 'text-violet-600',
+        tint: 'brand',
+        delta: topByNetRtg?.netRtg != null ? topByNetRtg.netRtg - avgNetRtg : null,
       },
       {
         label: 'Lowest Net Team',
         value: lowestByNetRtg?.netRtg?.toFixed(1) ?? '—',
-        sub: lowestByNetRtg?.abbreviation ?? 'No team data',
+        sub: lowestByNetRtg?.abbreviation ?? '—',
         icon: Users,
-        iconBg: 'bg-amber-100',
-        iconColor: 'text-amber-600',
+        tint: 'live',
+        delta: lowestByNetRtg?.netRtg != null ? lowestByNetRtg.netRtg - avgNetRtg : null,
       },
     ],
     clutchNetRtg: [
       {
-        label: 'League Clutch Net',
+        label: 'Clutch Net Avg',
         value: avgClutch.toFixed(1),
         sub: 'Avg net rating in clutch time',
         icon: Flame,
-        iconBg: 'bg-amber-100',
-        iconColor: 'text-amber-600',
+        tint: 'warning',
       },
       {
         label: 'Clutch Positive',
-        value: teams.filter((team) => (team.clutchNetRtg ?? Number.NEGATIVE_INFINITY) > 0).length,
+        value: teams.filter((t) => (t.clutchNetRtg ?? -Infinity) > 0).length,
         sub: 'Teams above zero in clutch',
         icon: TrendingUp,
-        iconBg: 'bg-emerald-100',
-        iconColor: 'text-emerald-600',
+        tint: 'success',
       },
       {
         label: 'Best Clutch Team',
         value: topByClutch?.clutchNetRtg?.toFixed(1) ?? '—',
-        sub: topByClutch?.abbreviation ?? 'No clutch data',
+        sub: topByClutch?.abbreviation ?? '—',
         icon: Trophy,
-        iconBg: 'bg-violet-100',
-        iconColor: 'text-violet-600',
+        tint: 'brand',
+        delta: topByClutch?.clutchNetRtg != null ? topByClutch.clutchNetRtg - avgClutch : null,
       },
       {
         label: 'Clutch Data',
         value: validClutch.length,
         sub: 'Teams with clutch games',
         icon: BarChart3,
-        iconBg: 'bg-blue-100',
-        iconColor: 'text-blue-600',
+        tint: 'info',
       },
     ],
   }
 
   const focusCards = focusCardsByMetric[mapMetric]
-
   const trendContext = selectedPlayer ? 'player' : selectedTeamId != null ? 'team' : 'league'
   const trendEntityId = selectedPlayer ? selectedPlayer.id : selectedTeamId
   const trendLabel = selectedPlayer
     ? selectedPlayer.name
     : selectedTeam
       ? selectedTeam.fullName
-      : 'League'
+      : 'Overview'
+
+  const breadcrumb = selectedPlayer
+    ? `${selectedTeam?.abbreviation ?? 'Team'} / ${selectedPlayer.name}`
+    : selectedTeam
+      ? selectedTeam.fullName
+      : null
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-sm font-medium uppercase tracking-widest text-orange-600">
-            Season {overview.season}
-          </p>
-          <h2 className="text-2xl font-semibold tracking-tight text-gray-900">League Dashboard</h2>
-          <p className="text-sm text-gray-500">Team performance, trends & drill-down</p>
+          <h2 className="text-2xl font-semibold tracking-tight text-foreground">Overview</h2>
+          <p className="text-sm text-muted-foreground">Team performance, trends & drill-down</p>
         </div>
-        <div className="flex items-center gap-2 rounded-lg bg-gray-100 p-1">
-          {METRIC_TABS.map(({ key, label }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setMapMetric(key)}
-              className={cn(
-                'rounded-md px-4 py-2 text-sm font-medium transition-all',
-                mapMetric === key
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900',
-              )}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="sticky top-14 z-30 -mx-1 self-start rounded-lg bg-background/90 px-1 py-1 backdrop-blur-sm lg:top-16">
+          <SegmentedControl
+            options={METRIC_TABS}
+            value={mapMetric}
+            onChange={setMapMetric}
+            aria-label="Map metric"
+          />
         </div>
       </div>
+
+      {panelsReady ? <FavoritesStrip /> : null}
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {focusCards.map((card) => (
@@ -244,20 +340,76 @@ export function OverviewPage() {
             suffix={card.suffix}
             sub={card.sub}
             icon={card.icon}
-            iconBg={card.iconBg}
-            iconColor={card.iconColor}
+            tint={card.tint}
+            delta={card.delta}
+            onClick={() => setMapMetric(mapMetric)}
           />
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
+      <div
+        className={cn(
+          'grid grid-cols-1 gap-6',
+          hasSelection && 'lg:grid-cols-12 lg:items-start',
+        )}
+      >
+        <section
+          aria-label="Team map"
+          className={cn('relative min-w-0', hasSelection ? 'lg:col-span-8' : 'col-span-1')}
+        >
+          {mapStillLoading ? (
+            <Skeleton className="absolute inset-0 z-10 min-h-[640px] rounded-xl" />
+          ) : null}
+          {mapError ? (
+            <div className="mb-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              Team map failed to load.{' '}
+              <button type="button" className="font-medium underline" onClick={() => void refetchMap()}>
+                Retry
+              </button>
+            </div>
+          ) : null}
           <TeamMap
             teams={teams}
             metric={mapMetric}
             selectedTeamId={selectedTeamId}
             onSelectTeam={handleSelectTeam}
+            matchupGames={isToday ? liveGames : []}
           />
+        </section>
+
+        {hasSelection ? (
+          <aside
+            className={cn(
+              'min-w-0 space-y-4 lg:col-span-4 lg:sticky lg:top-20',
+              'motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-right-4 motion-safe:duration-300',
+            )}
+          >
+            <TeamDetailSidebar
+              season={season}
+              teams={teams}
+              metric={mapMetric}
+              selectedTeamId={selectedTeamId}
+              selectedPlayerId={selectedPlayer?.id ?? null}
+              onSelectTeam={handleSelectTeam}
+              onSelectPlayer={handleSelectPlayer}
+              onClose={handleClose}
+            />
+            {selectedTeamId != null ? (
+              <TeamTrendPanel
+                key={`${selectedTeamId}-${mapMetric}`}
+                teamId={selectedTeamId}
+                season={season}
+                focusMetric={mapMetric}
+              />
+            ) : null}
+            {selectedTeamId != null ? <RecentGamesCard season={season} teamId={selectedTeamId} /> : null}
+          </aside>
+        ) : null}
+      </div>
+
+      {hasSelection ? (
+        <section aria-label="Performance trends" className="min-w-0 space-y-4">
+          {breadcrumb ? <p className="text-sm font-medium text-foreground">{breadcrumb}</p> : null}
           <DashboardTrends
             key={`${trendContext}-${trendEntityId ?? 'league'}-${mapMetric}`}
             context={trendContext}
@@ -267,22 +419,42 @@ export function OverviewPage() {
             teams={teams}
             leagueTrend={overview.leagueScoringTrend}
           />
-        </div>
+        </section>
+      ) : (
+        <div className={cn('space-y-6 transition-opacity duration-200', !panelsReady && 'opacity-90')}>
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-start">
+            <section className="flex min-w-0 flex-col gap-4 lg:col-span-7 xl:col-span-8">
+              <TodaysGamesPanel
+                className="min-h-[280px] lg:min-h-[360px]"
+                games={liveGames}
+                liveCount={liveCount}
+                isLoading={scoreboardLoading}
+                recentlyUpdated={recentlyUpdated}
+              />
+              <OverviewLiveSection enabled={panelsReady} liveGames={liveGames} />
+            </section>
+            <aside className="min-w-0 lg:col-span-5 xl:col-span-4">
+              <OverviewLeagueAside enabled={panelsReady} />
+            </aside>
+          </div>
 
-        <div className="space-y-6">
-          <TeamDetailSidebar
-            season={season}
-            teams={teams}
-            metric={mapMetric}
-            selectedTeamId={selectedTeamId}
-            selectedPlayerId={selectedPlayer?.id ?? null}
-            onSelectTeam={handleSelectTeam}
-            onSelectPlayer={handleSelectPlayer}
-            onClose={handleClose}
-          />
-          <RecentGamesCard season={season} />
+          <section aria-label="Performance trends">
+            <DashboardTrends
+              key={`${trendContext}-${trendEntityId ?? 'league'}-${mapMetric}`}
+              context={trendContext}
+              entityId={trendEntityId}
+              label={trendLabel}
+              focusMetric={mapMetric}
+              teams={teams}
+              leagueTrend={overview.leagueScoringTrend}
+            />
+          </section>
+
+          <section aria-label="Stats panels">
+            <OverviewLeagueStatsGrid enabled={panelsReady} selectedTeamId={selectedTeamId} />
+          </section>
         </div>
-      </div>
+      )}
     </div>
   )
 }
